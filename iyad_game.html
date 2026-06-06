@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ارسم المسير</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0a0a15; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: 'Segoe UI', Tahoma, sans-serif; }
+h1 { color: #7c6af7; font-size: 22px; margin-bottom: 12px; }
+#gameWrap { width: 640px; max-width: 100vw; background: #0f0f1a; border-radius: 14px; overflow: hidden; border: 1px solid #2a2a4a; }
+#hud { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: #12122a; }
+#hud span { color: #e0e0e0; font-size: 13px; font-weight: 500; }
+#levelBadge { background: #1a1a3e; color: #7c6af7; padding: 4px 14px; border-radius: 20px; font-size: 13px; font-weight: 500; border: 1px solid #7c6af7; }
+#gameCanvas { display: block; width: 100%; cursor: crosshair; touch-action: none; }
+#msg { text-align: center; padding: 9px; background: #12122a; color: #a0a0c0; font-size: 13px; min-height: 34px; }
+#restartBtn { display: none; margin: 0 auto 10px; padding: 8px 28px; background: #7c6af7; color: #fff; border: none; border-radius: 20px; font-size: 14px; font-weight: 500; cursor: pointer; }
+#iyadMsg { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.95); z-index: 999; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+#iyadMsg h2 { color: #ff2222; font-size: 64px; font-weight: 900; text-shadow: 0 0 40px #ff0000, 0 0 80px #ff0000; animation: pulse 0.7s infinite alternate; line-height: 1.3; }
+#iyadMsg p { color: #ffffff; font-size: 20px; margin-top: 20px; }
+#iyadMsg button { margin-top: 30px; padding: 12px 36px; background: #7c6af7; color: #fff; border: none; border-radius: 20px; font-size: 16px; cursor: pointer; }
+@keyframes pulse { from { transform: scale(1); color: #ff2222; } to { transform: scale(1.1); color: #ffaa00; } }
+</style>
+</head>
+<body>
+<h1>🎮 ارسم المسير</h1>
+<div id="gameWrap">
+  <div id="hud">
+    <span id="levelBadge">المرحلة 1</span>
+    <span id="scoreHud">★ 0</span>
+    <span id="livesHud">❤ 3</span>
+  </div>
+  <canvas id="gameCanvas" width="640" height="420"></canvas>
+  <div id="msg">ارسم مسيراً للشخصية لتصل إلى الباب!</div>
+  <button id="restartBtn" onclick="restartGame()">حاول مجدداً</button>
+</div>
+
+<div id="iyadMsg">
+  <h2>ادرس يا إياد!!! 😂📚</h2>
+  <p>وصلت المرحلة 4 — هاد وقت المذاكرة مش اللعب! 💀</p>
+  <button onclick="document.getElementById('iyadMsg').style.display='none'">حسناً أدرس 😭</button>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = 640, H = 420;
+canvas.width = W; canvas.height = H;
+
+let state = 'draw', drawnPath = [], drawing = false;
+let char = {};
+let level = 1, score = 0, lives = 3;
+let obstacles = [], movingObs = [], stars = [], door = {};
+let animId = null, levelComplete = false;
+let particles = [];
+let iyadShown = false;
+
+// سرعة ثابتة منخفضة تزيد بشكل بطيء
+function getSpeed(lvl) { return 1.8 + (lvl - 1) * 0.3; }
+
+function buildLevel(lvl) {
+  const obs = [], mov = [], starPos = [];
+
+  if (lvl === 1) {
+    obs.push({x:200,y:0,w:22,h:150});
+    obs.push({x:200,y:270,w:22,h:150});
+    obs.push({x:390,y:0,w:22,h:120});
+    obs.push({x:390,y:240,w:22,h:180});
+    starPos.push({x:295,y:200},{x:490,y:180});
+
+  } else if (lvl === 2) {
+    obs.push({x:160,y:0,w:22,h:130},{x:160,y:250,w:22,h:170});
+    obs.push({x:300,y:0,w:22,h:100},{x:300,y:220,w:22,h:200});
+    obs.push({x:440,y:0,w:22,h:160},{x:440,y:280,w:22,h:140});
+    starPos.push({x:230,y:185},{x:370,y:160},{x:530,y:200});
+
+  } else if (lvl === 3) {
+    obs.push({x:140,y:0,w:20,h:110},{x:140,y:220,w:20,h:200});
+    obs.push({x:260,y:0,w:20,h:160},{x:260,y:270,w:20,h:150});
+    obs.push({x:380,y:0,w:20,h:90},{x:380,y:200,w:20,h:220});
+    obs.push({x:500,y:0,w:20,h:130},{x:500,y:250,w:20,h:170});
+    mov.push({x:320,y:100,w:20,h:60,vy:1.5,minY:10,maxY:350,dir:1});
+    starPos.push({x:200,y:165},{x:320,y:130},{x:440,y:145},{x:560,y:180});
+
+  } else if (lvl === 4) {
+    obs.push({x:120,y:0,w:18,h:100},{x:120,y:210,w:18,h:210});
+    obs.push({x:230,y:0,w:18,h:150},{x:230,y:260,w:18,h:160});
+    obs.push({x:340,y:0,w:18,h:80},{x:340,y:190,w:18,h:230});
+    obs.push({x:450,y:0,w:18,h:120},{x:450,y:230,w:18,h:190});
+    obs.push({x:550,y:0,w:18,h:160},{x:550,y:270,w:18,h:150});
+    mov.push({x:285,y:80,w:18,h:55,vy:2.0,minY:10,maxY:355,dir:1});
+    mov.push({x:495,y:200,w:18,h:55,vy:2.0,minY:10,maxY:355,dir:-1});
+    starPos.push({x:175,y:155},{x:285,y:220},{x:395,y:140},{x:500,y:175},{x:580,y:210});
+
+  } else {
+    // مرحلة 5+ - تصاعدية
+    const cols = Math.min(3 + Math.floor((lvl-5)/1), 8);
+    const spacing = Math.floor((W - 110) / (cols + 1));
+    for (let i = 0; i < cols; i++) {
+      const bx = 70 + spacing * (i + 1) - 9;
+      const gapH = Math.max(100 - (lvl - 5) * 8, 40);
+      const gapY = 30 + Math.floor(Math.abs(Math.sin(lvl * 5.1 + i * 2.7)) * (H - gapH - 60));
+      if (gapY > 0) obs.push({x:bx, y:0, w:18, h:gapY});
+      obs.push({x:bx, y:gapY+gapH, w:18, h:H-(gapY+gapH)});
+    }
+    const numMov = Math.min(1 + Math.floor((lvl-5)/2), 4);
+    for (let i = 0; i < numMov; i++) {
+      const spd = 1.8 + (lvl-5)*0.4;
+      mov.push({x:100+i*120, y:60+i*40, w:18, h:50, vy:spd*(i%2===0?1:-1), minY:10, maxY:360, dir:1});
+    }
+    for (let i = 0; i < Math.min(3+lvl-5,7); i++) {
+      starPos.push({x:90+i*70, y:60+Math.floor(Math.abs(Math.sin(lvl*1.3+i*2.1))*(H-120))});
+    }
+  }
+
+  return { obs, mov, starPos };
+}
+
+function initLevel() {
+  if (level === 4 && !iyadShown) {
+    iyadShown = true;
+    document.getElementById('iyadMsg').style.display = 'flex';
+  }
+  const ld = buildLevel(level);
+  obstacles = ld.obs;
+  movingObs = ld.mov.map(o => ({...o}));
+  stars = ld.starPos.map(s => ({...s, collected:false, pulse:Math.random()*Math.PI*2}));
+  door = { x:W-50, y:H/2-45, w:32, h:90 };
+  char = { x:36, y:H/2, pathIdx:0, t:0, alive:true, radius:12, prevX:36, prevY:H/2 };
+  drawnPath=[]; drawing=false; state='draw'; levelComplete=false; particles=[];
+  document.getElementById('msg').textContent = 'ارسم مسيراً للوصول للباب!';
+  document.getElementById('restartBtn').style.display = 'none';
+  document.getElementById('levelBadge').textContent = 'المرحلة ' + level;
+  if (animId) cancelAnimationFrame(animId);
+  loop();
+}
+
+function getPos(e) {
+  const r = canvas.getBoundingClientRect();
+  const sx = W/r.width, sy = H/r.height;
+  if (e.touches) return {x:(e.touches[0].clientX-r.left)*sx, y:(e.touches[0].clientY-r.top)*sy};
+  return {x:(e.clientX-r.left)*sx, y:(e.clientY-r.top)*sy};
+}
+
+canvas.addEventListener('mousedown', e => { if(state!=='draw') return; drawing=true; drawnPath=[]; drawnPath.push(getPos(e)); });
+canvas.addEventListener('mousemove', e => { if(!drawing||state!=='draw') return; const p=getPos(e),last=drawnPath[drawnPath.length-1]; if(Math.hypot(p.x-last.x,p.y-last.y)>5) drawnPath.push(p); });
+canvas.addEventListener('mouseup', startRun);
+canvas.addEventListener('touchstart', e=>{e.preventDefault();if(state!=='draw')return;drawing=true;drawnPath=[];drawnPath.push(getPos(e));},{passive:false});
+canvas.addEventListener('touchmove', e=>{e.preventDefault();if(!drawing||state!=='draw')return;const p=getPos(e),last=drawnPath[drawnPath.length-1];if(Math.hypot(p.x-last.x,p.y-last.y)>5)drawnPath.push(p);},{passive:false});
+canvas.addEventListener('touchend', startRun);
+
+function startRun() {
+  if(!drawing||drawnPath.length<2){drawing=false;return;}
+  drawing=false; state='run'; char.pathIdx=0; char.t=0;
+  document.getElementById('msg').textContent = 'الشخصية تتحرك!';
+}
+
+function rectCircle(rx,ry,rw,rh,cx,cy,cr) {
+  return Math.hypot(cx-Math.max(rx,Math.min(cx,rx+rw)), cy-Math.max(ry,Math.min(cy,ry+rh))) < cr;
+}
+
+function spawnParticles(x,y,col,n) {
+  for(let i=0;i<(n||12);i++){
+    const a=Math.random()*Math.PI*2, s=1+Math.random()*3;
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,col});
+  }
+}
+
+function killChar() {
+  char.alive=false; lives--;
+  spawnParticles(char.x,char.y,'#e94560',16);
+  document.getElementById('livesHud').textContent='❤ '+lives;
+  if(lives>0){document.getElementById('msg').textContent='اصطدمت! '+lives+' حياة';document.getElementById('restartBtn').textContent='حاول مجدداً';}
+  else{document.getElementById('msg').textContent='انتهت الحياة! 💀';document.getElementById('restartBtn').textContent='ابدأ من جديد';}
+  document.getElementById('restartBtn').style.display='block';
+  state='dead';
+}
+
+function update() {
+  movingObs.forEach(o=>{o.y+=o.vy*o.dir; if(o.y+o.h>=o.maxY||o.y<=o.minY) o.dir*=-1;});
+  stars.forEach(s=>s.pulse+=0.06);
+  particles=particles.filter(p=>{p.x+=p.vx;p.y+=p.vy;p.life-=0.05;p.vx*=0.93;p.vy*=0.93;return p.life>0;});
+  if(state!=='run'||!char.alive||levelComplete) return;
+
+  const speed = getSpeed(level);
+  if(char.pathIdx < drawnPath.length-1){
+    const a=drawnPath[char.pathIdx], b=drawnPath[char.pathIdx+1];
+    const dx=b.x-a.x, dy=b.y-a.y, dist=Math.hypot(dx,dy);
+    char.t+=speed;
+    if(char.t>=dist){char.t-=dist;char.pathIdx++;}
+    const ratio=dist>0?char.t/dist:0;
+    char.prevX=char.x; char.prevY=char.y;
+    char.x=a.x+dx*ratio; char.y=a.y+dy*ratio;
+  } else {
+    char.x=drawnPath[drawnPath.length-1].x;
+    char.y=drawnPath[drawnPath.length-1].y;
+    state='draw';
+    document.getElementById('msg').textContent='ارسم مسيراً جديداً!';
+  }
+
+  for(const obs of [...obstacles,...movingObs]){
+    if(rectCircle(obs.x,obs.y,obs.w,obs.h,char.x,char.y,char.radius)){killChar();return;}
+  }
+  for(const star of stars){
+    if(!star.collected&&Math.hypot(char.x-star.x,char.y-star.y)<18){
+      star.collected=true; score++;
+      spawnParticles(star.x,star.y,'#ffd700',8);
+      document.getElementById('scoreHud').textContent='★ '+score;
+    }
+  }
+  if(char.x>door.x&&char.x<door.x+door.w+10&&char.y>door.y&&char.y<door.y+door.h){
+    levelComplete=true;
+    spawnParticles(door.x+door.w/2,door.y+door.h/2,'#2ecc71',20);
+    document.getElementById('msg').textContent='🎉 أحسنت! المرحلة '+(level+1)+' تنتظرك!';
+    level++; document.getElementById('levelBadge').textContent='المرحلة '+level;
+    setTimeout(initLevel,1400);
+  }
+}
+
+function drawChar() {
+  if(!char.alive&&state==='dead') return;
+  const x=char.x, y=char.y;
+  // جسم
+  ctx.fillStyle='#f5cba7';
+  ctx.beginPath(); ctx.arc(x,y,char.radius,0,Math.PI*2); ctx.fill();
+  // رأس
+  ctx.fillStyle='#f5cba7';
+  ctx.beginPath(); ctx.ellipse(x,y-char.radius-9,10,11,0,0,Math.PI*2); ctx.fill();
+  // شعر أسود
+  ctx.fillStyle='#111111';
+  ctx.beginPath(); ctx.ellipse(x,y-char.radius-17,11,8,0,Math.PI,0); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x-9,y-char.radius-13,3,7,-.4,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x+9,y-char.radius-13,3,7,.4,0,Math.PI*2); ctx.fill();
+  // نظارات - إطار
+  ctx.fillStyle='#111111';
+  ctx.beginPath(); ctx.roundRect(x-11,y-char.radius-12,9,7,2); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(x+2,y-char.radius-12,9,7,2); ctx.fill();
+  ctx.fillRect(x-1,y-char.radius-10,2,3);
+  // نظارات - عدسات داكنة
+  ctx.fillStyle='#1a252f';
+  ctx.beginPath(); ctx.roundRect(x-10,y-char.radius-11,7,5,1); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(x+3,y-char.radius-11,7,5,1); ctx.fill();
+  // بريق النظارة
+  ctx.fillStyle='rgba(255,255,255,0.25)';
+  ctx.beginPath(); ctx.ellipse(x-8,y-char.radius-10,1.5,1,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x+5,y-char.radius-10,1.5,1,0,0,Math.PI*2); ctx.fill();
+  // ابتسامة
+  ctx.strokeStyle='#a04030'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(x,y-char.radius-3,3.5,0.2,Math.PI-0.2); ctx.stroke();
+  // قميص أبيض
+  ctx.fillStyle='#ecf0f1';
+  ctx.beginPath(); ctx.arc(x,y+3,char.radius-3,0,Math.PI); ctx.fill();
+}
+
+function drawWall(o){
+  ctx.fillStyle='#e94560'; ctx.fillRect(o.x,o.y,o.w,o.h);
+  ctx.fillStyle='#c0392b'; ctx.fillRect(o.x,o.y,o.w,4);
+  if(o.h>6) ctx.fillRect(o.x,o.y+o.h-4,o.w,4);
+}
+function drawMover(o){
+  ctx.fillStyle='#e67e22'; ctx.fillRect(o.x,o.y,o.w,o.h);
+  ctx.fillStyle='#d35400'; ctx.fillRect(o.x,o.y,o.w,4);
+  if(o.h>6) ctx.fillRect(o.x,o.y+o.h-4,o.w,4);
+  ctx.fillStyle='#f39c12';
+  ctx.fillRect(o.x+o.w/2-3,o.y+o.h/2-8,6,16);
+  ctx.fillRect(o.x+o.w/2-8,o.y+o.h/2-3,16,6);
+}
+
+function draw() {
+  ctx.fillStyle='#0f0f1a'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#1a1a2e';
+  for(let i=0;i<W;i+=50) for(let j=0;j<H;j+=50){ctx.beginPath();ctx.arc(i,j,0.8,0,Math.PI*2);ctx.fill();}
+
+  if(level>3){ctx.fillStyle=`rgba(232,74,80,${Math.min((level-3)*0.02,0.2)})`;ctx.fillRect(0,0,W,H);}
+
+  if(drawnPath.length>1){
+    ctx.strokeStyle=state==='run'?'#7c6af7':'#4a4a7a';
+    ctx.lineWidth=3; ctx.lineCap='round'; ctx.lineJoin='round';
+    ctx.setLineDash(state==='run'?[]:[8,5]);
+    ctx.beginPath(); ctx.moveTo(drawnPath[0].x,drawnPath[0].y);
+    for(let i=1;i<drawnPath.length;i++) ctx.lineTo(drawnPath[i].x,drawnPath[i].y);
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  obstacles.forEach(o=>drawWall(o));
+  movingObs.forEach(o=>drawMover(o));
+
+  stars.forEach(s=>{
+    if(s.collected) return;
+    const sc=0.85+Math.sin(s.pulse)*0.15;
+    ctx.save(); ctx.translate(s.x,s.y); ctx.scale(sc,sc);
+    ctx.fillStyle='#ffd700'; ctx.font='20px serif'; ctx.textAlign='center';
+    ctx.fillText('★',0,7); ctx.restore();
+  });
+
+  ctx.fillStyle='#2ecc71'; ctx.strokeStyle='#27ae60'; ctx.lineWidth=2;
+  ctx.fillRect(door.x,door.y,door.w,door.h); ctx.strokeRect(door.x,door.y,door.w,door.h);
+  ctx.fillStyle='#1a5726'; ctx.beginPath(); ctx.arc(door.x+door.w-7,door.y+door.h/2,4,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#a8e6cf'; ctx.font='11px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('الباب',door.x+door.w/2,door.y-6);
+
+  ctx.fillStyle='#7c6af7'; ctx.beginPath(); ctx.arc(36,H/2,12,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#e0e0ff'; ctx.font='10px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('ابدأ',36,H/2+19);
+
+  drawChar();
+
+  particles.forEach(p=>{ctx.globalAlpha=p.life;ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x,p.y,3*p.life,0,Math.PI*2);ctx.fill();});
+  ctx.globalAlpha=1;
+}
+
+function loop(){ update(); draw(); animId=requestAnimationFrame(loop); }
+
+function restartGame(){
+  if(lives<=0){lives=3;score=0;level=1;iyadShown=false;document.getElementById('scoreHud').textContent='★ 0';document.getElementById('livesHud').textContent='❤ 3';}
+  char.alive=true; initLevel();
+}
+
+initLevel();
+</script>
+</body>
+</html>
